@@ -248,6 +248,21 @@ Tavily 搜索（3 个查询并行）
 - COMPARE：用户已在输入中给出竞品名
 - PAIN_POINTS / FEATURE_DESIGN：分析对象就是用户指定的产品，不需要先找竞品
 
+#### 自动上下文补充（未知术语处理）
+
+当 LLM 不认识用户提到的产品或术语时（如 "OpenClaw"、"龙虾功能"），系统不会要求用户解释，而是自动搜索补充上下文：
+
+```
+第一轮 LLM → 输出 needs_context: ["OpenClaw", "龙虾"]
+  ↓
+Tavily 搜索（为每个未知术语搜索 "是什么"）
+  ↓
+第二轮 LLM → 基于搜索结果重新理解意图，生成精准任务
+```
+
+**触发条件**：LLM 在第一轮输出中返回 `needs_context` 列表（非空）
+**兜底机制**：如果补充上下文后 LLM 仍未生成任务，`_generate_default_tasks()` 会基于框架信息生成默认任务
+
 #### 旧接口兼容
 
 保留了 `parse_input()` 和 `select_framework()` 两个同步方法，作为 LLM 不可用时的 fallback（基于关键词匹配）。
