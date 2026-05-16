@@ -239,11 +239,12 @@ async def run_research_agents(framework: dict, tasks: list[dict] = None) -> Rese
     agent_b = ResearchAgentB()
     agent_c = ResearchAgentC()
 
-    # 将任务列表映射到对应的 Agent
+    # 将任务列表映射到对应的 Agent（过滤掉非 dict 的异常项）
     task_map = {}
     if tasks:
         for t in tasks:
-            task_map[t.get("agent_name", "")] = t
+            if isinstance(t, dict):
+                task_map[t.get("agent_name", "")] = t
 
     # 三个 Agent 并行执行
     results = await asyncio.gather(

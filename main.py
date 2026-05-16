@@ -53,9 +53,12 @@ async def run_analysis(user_input_text: str) -> str:
     print("[Research] 启动并行调研 Agent...")
     research_results = await run_research_agents(framework, tasks)
 
-    print(f"[Research] Agent A (功能特性): {len(research_results.features.raw_results)} 条结果")
-    print(f"[Research] Agent B (商业数据): {len(research_results.business.raw_results)} 条结果")
-    print(f"[Research] Agent C (用户反馈): {len(research_results.user_feedback.app_store_reviews)} 条评论, {len(research_results.user_feedback.social_media_mentions)} 条社交提及")
+    print(f"[Research] Agent A (功能特性): {len(research_results.features.raw_results) if research_results.features else 0} 条结果")
+    print(f"[Research] Agent B (商业数据): {len(research_results.business.raw_results) if research_results.business else 0} 条结果")
+    if research_results.user_feedback:
+        print(f"[Research] Agent C (用户反馈): {len(research_results.user_feedback.app_store_reviews)} 条评论, {len(research_results.user_feedback.social_media_mentions)} 条社交提及")
+    else:
+        print(f"[Research] Agent C (用户反馈): 0 条结果")
     print()
 
     # ---- 第 3 步：分析 Agent（thinking 模式）----

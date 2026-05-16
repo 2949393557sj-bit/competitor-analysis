@@ -33,6 +33,8 @@ INTENT_AND_TASK_PROMPT = """你是一个竞品分析系统的编排 Agent。请�
 - PAIN_POINTS：用户想发现痛点/问题（如 "痛点"、"用户抱怨"、"有什么不足"）
 - FEATURE_DESIGN：用户想设计/实现某个功能，需要参考已有方案（如 "怎么做X"、"如何实现"、"功能设计"）
 
+**重要**：如果你不认识用户提到的某个产品、工具或术语（比如你不确定它是什么），请在 `needs_context` 中列出需要搜索确认的关键词。
+
 ## 第二步：分析框架
 根据意图确定分析策略和关注维度。
 
@@ -50,6 +52,7 @@ INTENT_AND_TASK_PROMPT = """你是一个竞品分析系统的编排 Agent。请�
   "product": "目标产品名称",
   "competitors": ["竞品1", "竞品2"],
   "reasoning": "简要说明你的判断依据",
+  "needs_context": ["你不认识的术语或产品名，如 OpenClaw、龙虾等"],
   "framework": {
     "analysis_type": "对应分析类型标识",
     "research_focus": {
@@ -79,6 +82,24 @@ INTENT_AND_TASK_PROMPT = """你是一个竞品分析系统的编排 Agent。请�
     }
   ]
 }
+"""
+
+# ---- 上下文补充提示词 ----
+# 当 LLM 不认识用户提到的产品/术语时，用搜索结果补充上下文
+CONTEXT_ENRICHMENT_PROMPT = """你之前不认识以下术语/产品，我们已经通过搜索找到了相关信息。
+请基于这些信息重新理解用户意图，并更新你的分析。
+
+## 需要补充的术语
+{terms}
+
+## 搜索结果
+{search_results}
+
+## 用户原始输入
+{raw_input}
+
+请重新分析用户意图，输出与之前相同格式的 JSON（包含 mode、product、competitors、reasoning、framework、tasks）。
+特别注意：现在你已经了解了这些术语，请基于搜索结果生成更精准的搜索任务。
 """
 
 # ---- 找竞品模式：第一步 —— 识别意图 + 提取产品名 ----
@@ -164,7 +185,11 @@ class OrchestratorAgent:
     async def arun(self, raw_input: str) -> dict:
         """主入口：执行完整的编排流程。
 
-        根据意图自动选择一步到位或两轮调用流程。
+        流程：
+          1. 第一轮 LLM 调用：意图识别
+          2. 如果 LLM 不认识某些术语 → 自动搜索补充上下文 → 第二轮 LLM 重新理解
+          3. 找竞品模式 → 额外搜索竞品候选
+          4. 输出结构化结果
 
         Args:
             raw_input: 用户原始查询文本
@@ -177,13 +202,17 @@ class OrchestratorAgent:
             }
         """
         # ---- 第一轮 LLM 调用：意图识别 ----
-        # 先用快速判断确定是否为找竞品模式
-        # 如果是，走两轮调用流程；否则一步到位
         first_pass = await call_llm_json(
             system_prompt=INTENT_AND_TASK_PROMPT,
             user_prompt=raw_input,
             thinking=True,
         )
+
+        # ---- 上下文补充：LLM 不认识的术语，自动搜索 ----
+        needs_context = first_pass.get("needs_context", [])
+        if needs_context:
+            print(f"[Orchestrator] 发现未知术语: {needs_context}，自动搜索补充上下文...")
+            first_pass = await self._enrich_context(raw_input, first_pass, needs_context)
 
         mode = first_pass.get("mode", "FIND_COMPETITORS")
 
@@ -193,6 +222,54 @@ class OrchestratorAgent:
         else:
             # 非找竞品模式：一步到位
             return self._build_result(raw_input, first_pass)
+
+    async def _enrich_context(
+        self, raw_input: str, first_pass: dict, terms: list[str]
+    ) -> dict:
+        """当 LLM 不认识某些术语时，自动搜索补充上下文。
+
+        流程：
+          1. 为每个未知术语构造搜索查询
+          2. 并行调用 Tavily 搜索
+          3. 将搜索结果注入提示词，让 LLM 重新理解意图
+
+        Args:
+            raw_input:    用户原始输入
+            first_pass:   第一轮 LLM 输出
+            terms:        LLM 不认识的术语列表
+
+        Returns:
+            补充上下文后的 LLM 输出（同 first_pass 格式）
+        """
+        import asyncio
+
+        # 为每个术语构造搜索查询
+        search_queries = [f"{term} 是什么 产品 功能" for term in terms]
+        search_tasks = [tavily_search(query=q, max_results=5) for q in search_queries]
+        results_raw = await asyncio.gather(*search_tasks, return_exceptions=True)
+
+        # 汇总搜索结果
+        results_text = ""
+        for i, results in enumerate(results_raw):
+            results_text += f"\n### {terms[i]} 的搜索结果:\n"
+            if isinstance(results, Exception):
+                results_text += f"搜索失败: {results}\n"
+            else:
+                for r in results:
+                    results_text += f"- {r.get('title', '')}: {r.get('content', '')[:300]}\n"
+
+        # 第二轮 LLM：基于搜索结果重新理解意图
+        enriched = await call_llm_json(
+            system_prompt=CONTEXT_ENRICHMENT_PROMPT.format(
+                terms=", ".join(terms),
+                search_results=results_text,
+                raw_input=raw_input,
+            ),
+            user_prompt="请基于搜索结果重新分析用户意图并输出 JSON。",
+            thinking=True,
+        )
+
+        return enriched
 
     async def _run_competitor_flow(self, raw_input: str, first_pass: dict) -> dict:
         """找竞品模式的两轮调用流程。
@@ -270,20 +347,66 @@ class OrchestratorAgent:
             extra_context=raw_input,
         )
 
-        # 提取框架配置
+        # 提取框架配置（LLM 可能返回字符串，需转为 dict）
         framework = llm_output.get("framework", {})
+        if isinstance(framework, str):
+            framework = {"analysis_type": framework}
         framework["mode"] = user_input.mode.value
         framework["product"] = user_input.product
         framework["competitors"] = user_input.competitors
 
-        # 提取任务列表
-        tasks = llm_output.get("tasks", [])
+        # 提取任务列表（过滤掉非 dict 的异常项）
+        tasks = [t for t in llm_output.get("tasks", []) if isinstance(t, dict)]
+
+        # 如果 LLM 没有生成任务，用框架信息生成默认任务
+        if not tasks:
+            tasks = self._generate_default_tasks(framework)
 
         return {
             "user_input": user_input,
             "framework": framework,
             "tasks": tasks,
         }
+
+    def _generate_default_tasks(self, framework: dict) -> list[dict]:
+        """当 LLM 没有生成任务时，用框架信息生成默认任务。
+
+        根据 framework 中的 research_focus 为每个 Agent 生成基础搜索任务。
+        """
+        focus = framework.get("research_focus", {})
+        product = framework.get("product", "")
+        competitors = framework.get("competitors", [])
+        names = [product] + competitors if competitors else [product]
+
+        return [
+            {
+                "agent_name": "Agent_A_Features",
+                "objective": f"调研 {', '.join(names)} 的功能特性和技术实现",
+                "search_queries": [
+                    f"{product} features capabilities",
+                    f"{' vs '.join(names)} feature comparison" if len(names) > 1 else f"{product} review",
+                ],
+                "focus_areas": ["功能对比", "技术实现", "产品差异"],
+            },
+            {
+                "agent_name": "Agent_B_Business",
+                "objective": f"调研 {', '.join(names)} 的商业数据",
+                "search_queries": [
+                    f"{product} funding revenue users",
+                    f"{product} market share valuation",
+                ],
+                "focus_areas": ["融资", "营收", "用户增长", "市场份额"],
+            },
+            {
+                "agent_name": "Agent_C_UserFeedback",
+                "objective": f"调研 {', '.join(names)} 的用户反馈",
+                "search_queries": [
+                    f"{product} user reviews pros cons",
+                    f"{product} 用户评价 优缺点",
+                ],
+                "focus_areas": ["用户评价", "常见抱怨", "满意度"],
+            },
+        ]
 
     # ---- 保留旧接口兼容 ----
 
