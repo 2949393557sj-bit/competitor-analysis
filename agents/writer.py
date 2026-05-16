@@ -225,11 +225,10 @@ class WriterAgent:
         try:
             result = await call_llm(
                 system_prompt="你是一个专业的竞品分析报告写作助手。",
-                user_prompt=SECTION_PROMPT.format(
-                    report_type=report_type,
-                    section_title=section_title,
-                    data=data,
-                ),
+                user_prompt=SECTION_PROMPT
+                    .replace("{report_type}", report_type)
+                    .replace("{section_title}", section_title)
+                    .replace("{data}", data),
                 thinking=False,
             )
             return result

@@ -225,13 +225,15 @@ class OrchestratorAgent:
                     results_text += f"- [{r.get('title', '')}]({r.get('url', '')})\n  {r.get('content', '')[:200]}\n"
 
         # ---- 第二轮 LLM 调用：整理竞品 + 生成任务 ----
+        # 用 .replace() 替代 .format()，避免搜索结果中的 {} 导致 KeyError
+        system_prompt = COMPETITOR_TASK_PROMPT
+        system_prompt = system_prompt.replace("{product}", product)
+        system_prompt = system_prompt.replace("{use_case}", use_case)
+        system_prompt = system_prompt.replace("{raw_input}", raw_input)
+        system_prompt = system_prompt.replace("{search_results}", results_text)
+
         second_pass = await call_llm_json(
-            system_prompt=COMPETITOR_TASK_PROMPT.format(
-                product=product,
-                use_case=use_case,
-                raw_input=raw_input,
-                search_results=results_text,
-            ),
+            system_prompt=system_prompt,
             user_prompt="请根据搜索结果筛选竞品并生成调研任务。",
             thinking=True,
         )

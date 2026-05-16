@@ -71,7 +71,7 @@ class BaseResearchAgent(ABC):
         try:
             summary = await call_llm(
                 system_prompt="你是一个专业的竞品分析助手，擅长从搜索结果中提取关键信息。",
-                user_prompt=SYNTHESIZE_PROMPT.format(results=results_text),
+                user_prompt=SYNTHESIZE_PROMPT.replace("{results}", results_text),
                 thinking=False,  # Research Agent 用 non-thinking 模式
             )
             return summary
