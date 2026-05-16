@@ -311,7 +311,7 @@ Agent C 除了 Tavily 搜索，还会：
 2. 注入三路调研摘要（features、business、user_feedback）
 3. 指定 JSON 输出格式（key_findings、comparison_table、pain_points 等）
 
-**提示词填充**：使用 `.replace()` 而非 `.format()`，因为 framework 字典转字符串后包含 `{}`，会与 Python 格式化冲突。
+**提示词填充**：全项目统一使用 `.replace()` 而非 `.format()` 处理包含外部数据的提示词。原因：搜索结果、framework 字典转字符串等外部数据中常包含 `{}`，会与 Python `str.format()` 冲突导致 `KeyError`。涉及文件：`orchestrator.py`、`researcher.py`、`analyst.py`、`writer.py`。
 
 #### 降级处理
 
