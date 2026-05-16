@@ -302,7 +302,9 @@ Agent C 除了 Tavily 搜索，还会：
 | `head_to_head_comparison` | `COMPARISON_ANALYSIS_PROMPT` | 逐项对比、优劣势 |
 | `competitive_landscape` | `LANDSCAPE_ANALYSIS_PROMPT` | 竞品发现、市场定位 |
 | `pain_point_analysis` | `PAIN_POINT_ANALYSIS_PROMPT` | 痛点提取、机会分析 |
-| `feature_design_assistance` | `FEATURE_DESIGN_PROMPT` | 已有方案、差异化机会 |
+| `feature_design_assistance` / `feature_design` | `FEATURE_DESIGN_PROMPT` | 已有方案、差异化机会 |
+
+> **容错设计**：LLM 可能返回非标准 `analysis_type`（如中文或缩写），Writer 和 Analyst 会用 `framework["mode"]` 做兜底路由，确保始终匹配到正确的模板。
 
 #### 提示词设计
 
