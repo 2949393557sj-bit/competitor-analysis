@@ -58,20 +58,20 @@ class WriterAgent:
             包含完整 Markdown 内容的 FinalReport 对象
         """
         analysis_type = framework.get("analysis_type", "head_to_head_comparison")
+        mode = framework.get("mode", "")
 
-        # 根据分析类型选择对应的报告构建方法
-        if analysis_type == "head_to_head_comparison":
-            md = await self._build_comparison_report(user_input, analysis, framework)
-        elif analysis_type == "competitive_landscape":
+        # 根据分析类型选择报告模板
+        # LLM 可能返回非标准 analysis_type，用 mode 做兜底
+        if analysis_type == "competitive_landscape" or mode == "找竞品":
             md = await self._build_landscape_report(user_input, analysis, framework)
-        elif analysis_type == "pain_point_analysis":
+        elif analysis_type == "pain_point_analysis" or mode == "发现痛点":
             md = await self._build_pain_point_report(user_input, analysis, framework)
-        elif analysis_type == "feature_design_assistance":
+        elif "feature_design" in analysis_type or mode == "功能设计辅助":
             md = await self._build_feature_design_report(user_input, analysis, framework)
         else:
             md = await self._build_comparison_report(user_input, analysis, framework)
 
-        title = self._generate_title(user_input, analysis_type)
+        title = self._generate_title(user_input, analysis_type, framework)
 
         return FinalReport(
             title=title,
@@ -79,16 +79,28 @@ class WriterAgent:
             output_path="report.md",
         )
 
-    def _generate_title(self, user_input: UserInput, analysis_type: str) -> str:
+    def _generate_title(self, user_input: UserInput, analysis_type: str, framework: dict = None) -> str:
         """生成报告标题。"""
         date_str = datetime.now().strftime("%Y-%m-%d")
+        framework = framework or {}
+        mode = framework.get("mode", "")
         mode_titles = {
             "head_to_head_comparison": "竞品对比分析",
             "competitive_landscape": "竞品发现报告",
             "pain_point_analysis": "痛点分析报告",
-            "feature_design_assistance": "功能设计辅助报告",
         }
-        mode_title = mode_titles.get(analysis_type, "竞品分析")
+        mode_title = mode_titles.get(analysis_type)
+        if not mode_title:
+            if mode == "找竞品":
+                mode_title = "竞品发现报告"
+            elif mode == "发现痛点":
+                mode_title = "痛点分析报告"
+            elif mode == "功能设计辅助":
+                mode_title = "功能设计辅助报告"
+            elif "feature_design" in analysis_type:
+                mode_title = "功能设计辅助报告"
+            else:
+                mode_title = "竞品分析"
         return f"{user_input.product} - {mode_title} ({date_str})"
 
     async def _build_comparison_report(

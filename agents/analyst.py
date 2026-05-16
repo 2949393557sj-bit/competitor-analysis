@@ -158,6 +158,7 @@ class AnalysisAgent:
             "competitive_landscape": LANDSCAPE_ANALYSIS_PROMPT,
             "pain_point_analysis": PAIN_POINT_ANALYSIS_PROMPT,
             "feature_design_assistance": FEATURE_DESIGN_PROMPT,
+            "feature_design": FEATURE_DESIGN_PROMPT,
         }
         prompt_template = prompt_map.get(analysis_type, COMPARISON_ANALYSIS_PROMPT)
 
