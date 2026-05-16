@@ -161,13 +161,12 @@ class AnalysisAgent:
         }
         prompt_template = prompt_map.get(analysis_type, COMPARISON_ANALYSIS_PROMPT)
 
-        # 填充提示词
-        prompt = prompt_template.format(
-            framework=str(framework),
-            features=features,
-            business=business,
-            user_feedback=user_feedback,
-        )
+        # 填充提示词（用 replace 而非 format，避免 framework 字符串中的 {} 冲突）
+        prompt = prompt_template
+        prompt = prompt.replace("{framework}", str(framework))
+        prompt = prompt.replace("{features}", features)
+        prompt = prompt.replace("{business}", business)
+        prompt = prompt.replace("{user_feedback}", user_feedback)
 
         # 调用 LLM（thinking 模式，核心分析需要深度推理）
         try:

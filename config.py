@@ -4,6 +4,10 @@
 # ============================================================
 
 import os
+from dotenv import load_dotenv
+
+# 自动加载 .env 文件中的环境变量
+load_dotenv()
 
 # ---- Tavily 搜索 API ----
 # Tavily 是一个专为 AI 应用设计的搜索引擎，用于获取网页搜索结果
