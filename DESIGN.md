@@ -311,6 +311,8 @@ Agent C 除了 Tavily 搜索，还会：
 2. 注入三路调研摘要（features、business、user_feedback）
 3. 指定 JSON 输出格式（key_findings、comparison_table、pain_points 等）
 
+**提示词填充**：使用 `.replace()` 而非 `.format()`，因为 framework 字典转字符串后包含 `{}`，会与 Python 格式化冲突。
+
 #### 降级处理
 
 LLM 调用失败时，`_fallback_result()` 直接将调研摘要作为 key_findings 返回，保证系统不会崩溃。
@@ -395,7 +397,7 @@ Tavily 是专为 AI 应用设计的搜索引擎 API，返回结构化结果（ti
 
 **文件**：`config.py`
 
-所有配置通过环境变量注入，不硬编码：
+所有配置通过 `.env` 文件注入（使用 `python-dotenv` 自动加载），不硬编码：
 
 | 变量 | 用途 | 默认值 |
 |------|------|--------|
@@ -409,6 +411,8 @@ Tavily 是专为 AI 应用设计的搜索引擎 API，返回结构化结果（ti
 cp .env.example .env
 # 编辑 .env 填入真实密钥
 ```
+
+> `.env` 被 `.gitignore` 排除，不会提交到 GitHub。
 
 ---
 
