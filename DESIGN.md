@@ -210,6 +210,20 @@ UserInput ──→ Orchestrator ──→ framework: dict + tasks: list[dict]
 **文件**：`agents/orchestrator.py`
 **LLM 模式**：thinking=True
 
+#### 意图识别：先判断阶段，再定模式
+
+意图识别的核心不是关键词匹配，而是让 LLM 先回答一个关键问题：**用户描述的产品/功能，是已经有的，还是打算做的？**
+
+```
+user_stage = has_product（已有产品）
+  → COMPARE / FIND_COMPETITORS / PAIN_POINTS
+
+user_stage = planning_to_build（规划阶段）
+  → FEATURE_DESIGN
+```
+
+这个判断由 LLM 在第一轮调用中完成，不需要关键词匹配。
+
 #### 三步合一设计
 
 传统做法是三步串行调用 LLM（意图识别 → 框架选择 → 任务分配），本系统将三步合并为**一次 LLM 调用**，通过精心设计的提示词让 LLM 在一次推理中完成全部工作。
@@ -388,7 +402,14 @@ LLM 调用失败时，`_fallback_result()` 直接将调研摘要作为 key_findi
 
 **目录**：`tools/`
 
-### 6.1 Tavily 搜索（`tools/tavily_search.py`）
+### 6.1 免费搜索（`tools/google_search.py`）
+
+使用 DuckDuckGo 搜索（免费、无需 API Key），用于 Orchestrator 的上下文补充。
+
+**用途**：当 LLM 不认识用户提到的术语时（如 "OpenClaw"、"miclaw"），自动搜索补充上下文。
+**优势**：不消耗 Tavily 配额。
+
+### 6.2 Tavily 搜索（`tools/tavily_search.py`）
 
 Tavily 是专为 AI 应用设计的搜索引擎 API，返回结构化结果（title、url、content、score）。
 
@@ -400,7 +421,7 @@ Tavily 是专为 AI 应用设计的搜索引擎 API，返回结构化结果（ti
 
 **当前状态**：占位实现，返回模拟数据。接入真实 API 后取消注释即可。
 
-### 6.2 应用商店评论（`tools/app_store.py`）
+### 6.3 应用商店评论（`tools/app_store.py`）
 
 两个函数：
 - `fetch_app_store_reviews()`：从 Google Play / App Store 抓取评论
@@ -453,12 +474,20 @@ cp .env.example .env
 **场景**："分析Zoom的用户痛点"、"Slack有什么不足"
 **流程**：一步到位
 
-### FEATURE_DESIGN — 功能设计辅助
+### FEATURE_DESIGN — 功能设计辅助（规划阶段）
 
-**触发词**：怎么做、如何做、功能设计、设计方案、实现方案
-**场景**："怎么做协作白板功能"、"如何实现消息已读回执"
-**流程**：一步到位
-**特殊价值**：不只找竞品，更关注"别人怎么做的"和"用户哪里不满意"，辅助功能取舍决策
+**触发信号**：用户处于规划阶段，想做一个新东西（LLM 判断 user_stage=planning_to_build）
+**典型场景**：
+- "我想做一个类似飞书AI助手的功能"
+- "怎么做协作白板功能"
+- "帮我分析各家claw怎么做，我应该怎么差异化"
+**流程**：一步到位（或先搜索未知术语再分析）
+**报告结构**：
+1. 市面上已有的类似方案（别人做了什么、怎么做的）
+2. 各家的劣势和突破口（致命弱点、市场空白）
+3. 各方案优劣对比（值得借鉴、需要规避）
+4. 我的场景应该怎么做（差异化方向、功能取舍、优先级、风险提示）
+**核心价值**：不是罗列竞品，而是告诉用户"别人踩了什么坑、你应该怎么避"
 
 ---
 
