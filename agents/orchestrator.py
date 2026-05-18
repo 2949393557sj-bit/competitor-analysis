@@ -17,42 +17,61 @@ import json
 from models import UserInput, AnalysisMode
 from llm_client import call_llm_json
 from tools.tavily_search import tavily_search
+from tools.google_search import google_search
 
 
 # ============================================================
 # 提示词模板
 # ============================================================
 
-# ---- 第一步：意图识别 + 任务生成（非找竞品模式）----
-INTENT_AND_TASK_PROMPT = """你是一个竞品分析系统的编排 Agent。请分析用户输入，完成以下三步：
+# ---- 第一步：意图识别 + 任务生成 ----
+INTENT_AND_TASK_PROMPT = """你是一个竞品分析系统的编排 Agent。你的首要任务是准确判断用户的真实意图。
 
-## 第一步：意图识别
-判断用户属于以下哪种模式：
-- COMPARE：用户明确提到了要对比的产品（如 "A vs B"、"A和B对比"）
-- FIND_COMPETITORS：用户想寻找竞品/替代品（如 "找竞品"、"有什么替代"）
-- PAIN_POINTS：用户想发现痛点/问题（如 "痛点"、"用户抱怨"、"有什么不足"）
-- FEATURE_DESIGN：用户想设计/实现某个功能，需要参考已有方案（如 "怎么做X"、"如何实现"、"功能设计"）
+## 第一步：判断用户阶段（最重要！）
 
-**重要**：如果你不认识用户提到的某个产品、工具或术语（比如你不确定它是什么），请在 `needs_context` 中列出需要搜索确认的关键词。
+先回答一个关键问题：**用户描述的产品/功能，是已经有的，还是打算做的？**
 
-## 第二步：分析框架
-根据意图确定分析策略和关注维度。
+- **has_product**：用户有一个已存在的产品/功能，想围绕它做分析
+  - 例："Slack vs Teams"、"找Notion的竞品"、"分析Zoom的用户痛点"
+  - 特征：产品名是市面上已知的、用户在使用中的
 
-## 第三步：任务分配
+- **planning_to_build**：用户处于规划阶段，想做一个新东西，需要参考市面上已有的方案
+  - 例："我想做一个类似飞书的AI助手"、"怎么做协作白板功能"、"帮我分析各家claw怎么做，我应该怎么差异化"
+  - 特征：用户说的是"我想做"、"怎么做"、"类似X的功能"、提到的产品是参考对象而非分析对象
+
+## 第二步：根据阶段确定模式
+
+如果 **has_product**：
+  - COMPARE：用户提到了多个产品要对比（"A vs B"、"A和B对比"）
+  - FIND_COMPETITORS：用户想找某个产品的替代品（"找竞品"、"有什么替代"）
+  - PAIN_POINTS：用户想分析某个产品的问题（"痛点"、"用户抱怨"、"有什么不足"）
+
+如果 **planning_to_build**：
+  - FEATURE_DESIGN：用户想做新功能/产品，需要调研已有方案、分析优劣、给出差异化建议
+
+## 第三步：分析框架 + 任务分配
+
 为三个 Research Agent 生成具体的搜索任务：
 - Agent_A_Features：功能特性调研（功能对比、能力差异、技术实现）
 - Agent_B_Business：商业数据调研（融资、营收、用户增长、市场份额）
 - Agent_C_UserFeedback：用户反馈调研（应用商店评论、社交媒体讨论）
 
-每个任务包含：objective（目标）、search_queries（建议搜索词）、focus_areas（关注维度）
+**FEATURE_DESIGN 模式的任务特别要求**：
+- 搜索任务应聚焦于"市面上已有的类似产品/方案"，而非用户自己说的产品名
+- 如果用户提到了参考对象（如飞书、腾讯、小米），这些就是搜索重点
+- search_queries 应该是"{参考产品} 的XX功能 怎么做的"而非"用户的产品名 的XX功能"
+
+## 未知术语处理
+如果你不认识用户提到的某个产品、工具或术语，请在 `needs_context` 中列出需要搜索确认的关键词。
 
 ## 输出 JSON 格式
 {
+  "user_stage": "has_product 或 planning_to_build",
   "mode": "COMPARE|FIND_COMPETITORS|PAIN_POINTS|FEATURE_DESIGN",
-  "product": "目标产品名称",
-  "competitors": ["竞品1", "竞品2"],
-  "reasoning": "简要说明你的判断依据",
-  "needs_context": ["你不认识的术语或产品名，如 OpenClaw、龙虾等"],
+  "product": "目标产品名称（has_product=用户的产品，planning_to_build=用户想做的东西的名字）",
+  "competitors": ["竞品/参考产品1", "竞品/参考产品2"],
+  "reasoning": "你的判断逻辑：用户处于什么阶段、为什么选这个模式",
+  "needs_context": ["不认识的术语"],
   "framework": {
     "analysis_type": "对应分析类型标识",
     "research_focus": {
@@ -98,8 +117,28 @@ CONTEXT_ENRICHMENT_PROMPT = """你之前不认识以下术语/产品，我们已
 ## 用户原始输入
 {raw_input}
 
-请重新分析用户意图，输出与之前相同格式的 JSON（包含 mode、product、competitors、reasoning、framework、tasks）。
-特别注意：现在你已经了解了这些术语，请基于搜索结果生成更精准的搜索任务。
+## 核心判断原则（必须遵守）
+
+**先判断用户阶段（user_stage），再定模式（mode）：**
+
+1. 用户是否已有一个正在使用的产品？
+   - 是 → user_stage = "has_product"
+   - 否（用户在规划/想做一个新东西）→ user_stage = "planning_to_build"
+
+2. 根据阶段选模式：
+   - has_product → COMPARE / FIND_COMPETITORS / PAIN_POINTS（三选一）
+   - planning_to_build → FEATURE_DESIGN（必须是这个）
+
+**planning_to_build 的典型信号**：
+- "我想做一个..."、"怎么做..."、"帮我分析各家...我应该怎么..."
+- 用户提到了参考对象（飞书、腾讯等），但自己要做的东西还没做出来
+- 用户在找差异化方向、问"应该怎么做"
+
+**FEATURE_DESIGN 模式的搜索任务要求**：
+- search_queries 应聚焦于参考产品（飞书/腾讯/小米等），不是用户想做的产品名
+- 例如："飞书智能助手 功能 怎么实现" 而非 "academic_claw 功能"
+
+请输出完整 JSON（user_stage、mode、product、competitors、reasoning、framework、tasks）。
 """
 
 # ---- 找竞品模式：第一步 —— 识别意图 + 提取产品名 ----
@@ -241,12 +280,9 @@ class OrchestratorAgent:
         Returns:
             补充上下文后的 LLM 输出（同 first_pass 格式）
         """
-        import asyncio
-
-        # 为每个术语构造搜索查询
+        # 用 Google 搜索（免费，不消耗 Tavily 配额）
         search_queries = [f"{term} 是什么 产品 功能" for term in terms]
-        search_tasks = [tavily_search(query=q, max_results=5) for q in search_queries]
-        results_raw = await asyncio.gather(*search_tasks, return_exceptions=True)
+        results_raw = [google_search(q, num_results=5) for q in search_queries]
 
         # 汇总搜索结果
         results_text = ""
@@ -339,11 +375,13 @@ class OrchestratorAgent:
         }
         mode = mode_map.get(llm_output.get("mode", ""), AnalysisMode.FIND_COMPETITORS)
 
-        # 构建 UserInput
+        # 构建 UserInput（过滤 competitors 中的非字符串项）
+        raw_competitors = llm_output.get("competitors", [])
+        competitors = [c for c in raw_competitors if isinstance(c, str)]
         user_input = UserInput(
             product=llm_output.get("product", raw_input.split()[0]),
             mode=mode,
-            competitors=llm_output.get("competitors", []),
+            competitors=competitors,
             extra_context=raw_input,
         )
 
@@ -375,7 +413,7 @@ class OrchestratorAgent:
         """
         focus = framework.get("research_focus", {})
         product = framework.get("product", "")
-        competitors = framework.get("competitors", [])
+        competitors = [c for c in framework.get("competitors", []) if isinstance(c, str)]
         names = [product] + competitors if competitors else [product]
 
         return [

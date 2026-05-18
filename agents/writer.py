@@ -200,30 +200,35 @@ class WriterAgent:
     async def _build_feature_design_report(
         self, user_input: UserInput, analysis: AnalysisResult, framework: dict
     ) -> str:
-        """构建功能设计辅助报告。"""
+        """构建功能设计辅助报告（规划阶段：别人怎么做的 → 有什么坑 → 我该怎么做）。"""
         sections = [
             f"# {user_input.product} - 功能设计辅助报告",
             f"",
             f"**生成日期:** {datetime.now().strftime('%Y-%m-%d %H:%M')}",
-            f"**功能/场景:** {user_input.product}",
+            f"**要做的功能/产品:** {user_input.product}",
+            f"**当前阶段:** 规划中",
             f"",
-            f"## 1. 已有方案分析",
+            f"## 1. 市面上已有的类似方案",
             f"",
-            f"_市面上类似产品是如何实现的？_",
+            f"_别人做了什么、怎么做的、定位是什么_",
             f"",
             self._format_list(analysis.key_findings),
             f"",
-            f"## 2. 用户痛点",
+            f"## 2. 各家的劣势和突破口",
             f"",
-            f"_用户对现有方案有哪些不满？_",
+            f"_别人的致命弱点是什么、市场空白在哪_",
             f"",
             self._format_list(analysis.pain_points),
             f"",
-            f"## 3. 差异化机会",
+            f"## 3. 各方案优劣对比",
+            f"",
+            f"_值得借鉴什么、需要规避什么_",
             f"",
             self._format_strengths_weaknesses(analysis.strengths_weaknesses),
             f"",
-            f"## 4. 功能取舍建议",
+            f"## 4. 我的场景应该怎么做",
+            f"",
+            f"_差异化方向、功能取舍、规避劣势、优先级、风险提示_",
             f"",
             self._format_list(analysis.recommendations),
         ]
